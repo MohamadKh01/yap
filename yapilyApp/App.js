@@ -267,7 +267,8 @@ function InstitutionsScreen({ navigation, user }) {
       const consentsMap = {};
       tokensArray.forEach(tokenObj => {
         consentsMap[tokenObj.institutionId] = {
-          consentToken: tokenObj.consentToken
+          consentToken: tokenObj.consentToken,
+          consentId: tokenObj.consentId // <-- Extract the ID from Firestore
         };
       });
       setSavedConsents(consentsMap);
@@ -299,6 +300,7 @@ function InstitutionsScreen({ navigation, user }) {
       if (savedConsents[institutionId]) {
         navigation.navigate('Accounts', {
           consentToken: savedConsents[institutionId].consentToken,
+          consentId: savedConsents[institutionId].consentId, // <-- Pass the ID to AccountsScreen
           instId: institutionId
         });
         return;
