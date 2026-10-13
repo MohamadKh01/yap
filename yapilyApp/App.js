@@ -12,7 +12,7 @@ import { auth } from './firebaseConfig';
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
 
 // IMPORTANT: Point this to your backend
-const BACKEND_URL = 'https://yapily.onrender.com'; 
+const BACKEND_URL = 'https://yapily.onrender.com';
 
 const Stack = createNativeStackNavigator();
 
@@ -241,7 +241,7 @@ function LoginScreen() {
 }
 
 // --- Screen 1: Institutions List (Grid Layout & Search) ---
-function InstitutionsScreen({ navigation }) {
+function InstitutionsScreen({ navigation, user }) {
   const [institutions, setInstitutions] = useState([]);
   const [savedConsents, setSavedConsents] = useState({});
   const [loading, setLoading] = useState(true);
@@ -254,22 +254,31 @@ function InstitutionsScreen({ navigation }) {
       const res = await axios.get(`${BACKEND_URL}/institutions`);
       setInstitutions(res.data.data || []);
     } catch (err) {
-      console.error(err);
+      console.error("Error fetching institutions:", err);
     }
   };
 
-  const loadLocalData = async () => {
+  // Fetch tokens securely from the cloud instead of AsyncStorage
+  const fetchUserTokens = async () => {
     try {
-      const stored = await AsyncStorage.getItem('userConsents');
-      if (stored) setSavedConsents(JSON.parse(stored));
+      const res = await axios.get(`${BACKEND_URL}/user/tokens/${user.uid}`);
+      const tokensArray = res.data.linkedBanks || [];
+
+      const consentsMap = {};
+      tokensArray.forEach(tokenObj => {
+        consentsMap[tokenObj.institutionId] = {
+          consentToken: tokenObj.consentToken
+        };
+      });
+      setSavedConsents(consentsMap);
     } catch (err) {
-      console.error(err);
+      console.error("Error fetching user tokens:", err);
     }
   };
 
   useFocusEffect(
     useCallback(() => {
-      loadLocalData();
+      fetchUserTokens();
       if (institutions.length === 0) {
         fetchInstitutions().finally(() => setLoading(false));
       } else {
@@ -281,7 +290,7 @@ function InstitutionsScreen({ navigation }) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await fetchInstitutions();
-    await loadLocalData();
+    await fetchUserTokens();
     setRefreshing(false);
   }, []);
 
@@ -290,7 +299,6 @@ function InstitutionsScreen({ navigation }) {
       if (savedConsents[institutionId]) {
         navigation.navigate('Accounts', {
           consentToken: savedConsents[institutionId].consentToken,
-          consentId: savedConsents[institutionId].consentId,
           instId: institutionId
         });
         return;
@@ -300,16 +308,18 @@ function InstitutionsScreen({ navigation }) {
       const baseUrl = Linking.createURL('callback');
       const returnUrl = baseUrl + (baseUrl.includes('?') ? '&' : '?') + 'instId=' + institutionId;
 
+      // Pass the Firebase user UID to the Express server
       const response = await axios.post(`${BACKEND_URL}/auth-request`, {
         institutionId: institutionId,
-        returnUrl: returnUrl
+        returnUrl: returnUrl,
+        userId: user.uid
       });
-      const authUrl = response.data.data.authorisationUrl;
 
+      const authUrl = response.data.data.authorisationUrl;
       setAuthLoadingId(null);
       await WebBrowser.openBrowserAsync(authUrl);
     } catch (error) {
-      console.error(error);
+      console.error("Auth Request Error:", error);
       setAuthLoadingId(null);
     }
   };
@@ -675,7 +685,6 @@ export default function App() {
             <>
               <Stack.Screen
                 name="Home"
-                component={InstitutionsScreen}
                 options={{
                   title: 'Select Bank',
                   headerRight: () => (
@@ -684,7 +693,9 @@ export default function App() {
                     </TouchableOpacity>
                   )
                 }}
-              />
+              >
+                {(props) => <InstitutionsScreen user={user} {...props} />}
+              </Stack.Screen>
               <Stack.Screen name="Callback" component={CallbackScreen} options={{ headerShown: false }} />
               <Stack.Screen name="Accounts" component={AccountsScreen} options={{ title: 'My Accounts' }} />
               <Stack.Screen name="Transactions" component={TransactionsScreen} options={{ title: 'Transactions' }} />

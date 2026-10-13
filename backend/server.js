@@ -4,9 +4,16 @@ const cors = require('cors'); //[cite: 1]
 const axios = require('axios'); //[cite: 1]
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
-const serviceAccount = require('./serviceAccountKey.json');
 
-// Initialize Firebase Admin (Modern API)
+// Load credentials from Render Environment Variable, or fallback to local file
+let serviceAccount;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} else {
+  serviceAccount = require('./serviceAccountKey.json');
+}
+
+// Initialize Firebase Admin
 initializeApp({
   credential: cert(serviceAccount)
 });
