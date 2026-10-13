@@ -1,58 +1,58 @@
-require('dotenv').config(); //[cite: 1]
-const express = require('express'); //[cite: 1]
-const cors = require('cors'); //[cite: 1]
-const axios = require('axios'); //[cite: 1]
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
 const { initializeApp, cert } = require('firebase-admin/app');
 const { getFirestore, FieldValue } = require('firebase-admin/firestore');
 
 // Load credentials from Render Environment Variable, or fallback to local file
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+    serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 } else {
-  serviceAccount = require('./serviceAccountKey.json');
+    serviceAccount = require('./serviceAccountKey.json');
 }
 
 // Initialize Firebase Admin
 initializeApp({
-  credential: cert(serviceAccount)
+    credential: cert(serviceAccount)
 });
 const db = getFirestore();
 
-const app = express(); //[cite: 1]
-app.use(cors()); //[cite: 1]
-app.use(express.json()); //[cite: 1]
+const app = express();
+app.use(cors());
+app.use(express.json());
 
-const YAPILY_BASE_URL = 'https://api.yapily.com'; //[cite: 1]
-const NGROK_URL = process.env.NGROK_URL; //[cite: 1]
+const YAPILY_BASE_URL = 'https://api.yapily.com';
+const NGROK_URL = process.env.NGROK_URL;
 
-// Generate Basic Auth token for Yapily[cite: 1]
-const getBasicAuth = () => { //[cite: 1]
-    const credentials = `${process.env.YAPILY_APP_ID}:${process.env.YAPILY_APP_SECRET}`; //[cite: 1]
-    return `Basic ${Buffer.from(credentials).toString('base64')}`; //[cite: 1]
+// Generate Basic Auth token for Yapily
+const getBasicAuth = () => {
+    const credentials = `${process.env.YAPILY_APP_ID}:${process.env.YAPILY_APP_SECRET}`;
+    return `Basic ${Buffer.from(credentials).toString('base64')}`;
 };
 
-let currentClientUrl = 'dabi://callback'; //[cite: 1]
+let currentClientUrl = 'dabi://callback';
 
-// 1. Get Institutions[cite: 1]
-app.get('/institutions', async (req, res) => { //[cite: 1]
+// 1. Get Institutions
+app.get('/institutions', async (req, res) => {
     try {
-        const response = await axios.get(`${YAPILY_BASE_URL}/institutions`, { //[cite: 1]
-            headers: { Authorization: getBasicAuth() }, //[cite: 1]
+        const response = await axios.get(`${YAPILY_BASE_URL}/institutions`, {
+            headers: { Authorization: getBasicAuth() },
         });
-        res.json(response.data); //[cite: 1]
+        res.json(response.data);
     } catch (error) {
-        res.status(500).json({ error: error.response?.data || error.message }); //[cite: 1]
+        res.status(500).json({ error: error.response?.data || error.message });
     }
 });
 
 // 2. Create Auth Request (UPDATED FOR FIREBASE)
-app.post('/auth-request', async (req, res) => { //[cite: 1]
+app.post('/auth-request', async (req, res) => {
     // Now extracting userId provided by React Native
-    const { institutionId, returnUrl, userId } = req.body; //[cite: 1]
+    const { institutionId, returnUrl, userId } = req.body;
 
-    if (returnUrl) { //[cite: 1]
-        currentClientUrl = returnUrl; //[cite: 1]
+    if (returnUrl) {
+        currentClientUrl = returnUrl;
     }
 
     if (!userId) {
@@ -60,38 +60,45 @@ app.post('/auth-request', async (req, res) => { //[cite: 1]
     }
 
     try {
-        const response = await axios.post( //[cite: 1]
-            `${YAPILY_BASE_URL}/account-auth-requests`, //[cite: 1]
+        const response = await axios.post(
+            `${YAPILY_BASE_URL}/account-auth-requests`,
             {
-                applicationUserId: userId, // Dynamically set instead of hardcoded[cite: 1]
-                institutionId: institutionId, //[cite: 1]
-                callback: `${NGROK_URL}/callback`, //[cite: 1]
+                applicationUserId: userId, // Dynamically set instead of hardcoded
+                institutionId: institutionId,
+                callback: `${NGROK_URL}/callback`,
             },
             {
-                headers: { Authorization: getBasicAuth() }, //[cite: 1]
+                headers: { Authorization: getBasicAuth() },
             }
         );
-        res.json(response.data); //[cite: 1]
+        res.json(response.data);
     } catch (error) {
-        console.error("Yapily Auth Error:", error.response?.data || error.message); //[cite: 1]
-        res.status(500).json({ error: error.response?.data || error.message }); //[cite: 1]
+        console.error("Yapily Auth Error:", error.response?.data || error.message);
+        res.status(500).json({ error: error.response?.data || error.message });
     }
 });
 
-// 3. Handle Bank Redirect & Save to Cloud (UPDATED FOR FIREBASE)
-app.get('/callback', async (req, res) => { //[cite: 1]
+// 3. Handle Bank Redirect & Save to Cloud (UPDATED)
+app.get('/callback', async (req, res) => {
     // Extract parameters passed back by the bank via Yapily
-    const { consent, 'application-user-id': applicationUserId, institution, error } = req.query;
+    const consent = req.query.consent;
+    const applicationUserId = req.query['application-user-id'];
+    const institution = req.query.institution;
+    const error = req.query.error;
+
+    // Grab the consent-id
+    const consentId = req.query['consent-id'] || req.query.consentid;
 
     if (!error && consent && applicationUserId && institution) {
         try {
             // Write the token securely to the user's Firestore document
             const userRef = db.collection('users').doc(applicationUserId);
-            
+
             await userRef.set({
                 linkedBanks: FieldValue.arrayUnion({
                     institutionId: institution,
                     consentToken: consent,
+                    consentId: consentId, // Save it to the database
                     linkedAt: new Date().toISOString()
                 })
             }, { merge: true });
@@ -100,9 +107,9 @@ app.get('/callback', async (req, res) => { //[cite: 1]
         }
     }
 
-    // Safely append a simple success status to the Expo URL, hiding the token[cite: 1]
-    const separator = currentClientUrl.includes('?') ? '&' : '?'; //[cite: 1]
-    const deepLink = `${currentClientUrl}${separator}status=${error ? 'failed' : 'success'}`; //[cite: 1]
+    // Safely append a simple success status to the Expo URL, hiding the token
+    const separator = currentClientUrl.includes('?') ? '&' : '?';
+    const deepLink = `${currentClientUrl}${separator}status=${error ? 'failed' : 'success'}`;
 
     res.send(`
     <!DOCTYPE html>
@@ -120,7 +127,7 @@ app.get('/callback', async (req, res) => { //[cite: 1]
         </script>
       </body>
     </html>
-  `); //[cite: 1]
+  `);
 });
 
 // NEW 4. Fetch Saved Tokens for React Native
@@ -136,51 +143,51 @@ app.get('/user/tokens/:userId', async (req, res) => {
     }
 });
 
-// 5. Get Accounts[cite: 1]
-app.get('/accounts', async (req, res) => { //[cite: 1]
-    const { consenttoken } = req.headers; //[cite: 1]
+// 5. Get Accounts
+app.get('/accounts', async (req, res) => {
+    const { consenttoken } = req.headers;
     try {
-        const response = await axios.get(`${YAPILY_BASE_URL}/accounts`, { //[cite: 1]
+        const response = await axios.get(`${YAPILY_BASE_URL}/accounts`, {
             headers: {
-                Authorization: getBasicAuth(), //[cite: 1]
-                consent: consenttoken //[cite: 1]
+                Authorization: getBasicAuth(),
+                consent: consenttoken
             },
         });
-        res.json(response.data); //[cite: 1]
+        res.json(response.data);
     } catch (error) {
-        res.status(500).json({ error: error.response?.data || error.message }); //[cite: 1]
+        res.status(500).json({ error: error.response?.data || error.message });
     }
 });
 
-// 6. Get Consent Metadata[cite: 1]
-app.get('/consents/:consentId', async (req, res) => { //[cite: 1]
+// 6. Get Consent Metadata
+app.get('/consents/:consentId', async (req, res) => {
     try {
-        const response = await axios.get(`${YAPILY_BASE_URL}/consents/${req.params.consentId}`, { //[cite: 1]
-            headers: { Authorization: getBasicAuth() }, //[cite: 1]
+        const response = await axios.get(`${YAPILY_BASE_URL}/consents/${req.params.consentId}`, {
+            headers: { Authorization: getBasicAuth() },
         });
-        res.json(response.data); //[cite: 1]
+        res.json(response.data);
     } catch (error) {
-        res.status(500).json({ error: error.response?.data || error.message }); //[cite: 1]
+        res.status(500).json({ error: error.response?.data || error.message });
     }
 });
 
-// 7. Get Transactions for an Account[cite: 1]
-app.get('/accounts/:accountId/transactions', async (req, res) => { //[cite: 1]
-    const { consenttoken } = req.headers; //[cite: 1]
+// 7. Get Transactions for an Account
+app.get('/accounts/:accountId/transactions', async (req, res) => {
+    const { consenttoken } = req.headers;
     try {
-        const response = await axios.get(`${YAPILY_BASE_URL}/accounts/${req.params.accountId}/transactions`, { //[cite: 1]
+        const response = await axios.get(`${YAPILY_BASE_URL}/accounts/${req.params.accountId}/transactions`, {
             headers: {
-                Authorization: getBasicAuth(), //[cite: 1]
-                consent: consenttoken //[cite: 1]
+                Authorization: getBasicAuth(),
+                consent: consenttoken
             },
         });
-        res.json(response.data); //[cite: 1]
+        res.json(response.data);
     } catch (error) {
-        res.status(500).json({ error: error.response?.data || error.message }); //[cite: 1]
+        res.status(500).json({ error: error.response?.data || error.message });
     }
 });
 
-app.listen(process.env.PORT, () => { //[cite: 1]
-    console.log(`Backend running on port ${process.env.PORT}`); //[cite: 1]
-    console.log(`Ensure ngrok is forwarding to this port: ngrok http ${process.env.PORT}`); //[cite: 1]
+app.listen(process.env.PORT, () => {
+    console.log(`Backend running on port ${process.env.PORT}`);
+    console.log(`Ensure ngrok is forwarding to this port: ngrok http ${process.env.PORT}`);
 });
