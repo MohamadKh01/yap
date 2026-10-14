@@ -187,6 +187,25 @@ app.get('/accounts/:accountId/transactions', async (req, res) => {
     }
 });
 
+// 8. Revoke Consent (Delete from Firestore)
+app.delete('/user/tokens/:userId/:instId', async (req, res) => {
+    try {
+        const { userId, instId } = req.params;
+        const userRef = db.collection('users').doc(userId);
+        const doc = await userRef.get();
+        
+        if (doc.exists) {
+            const linkedBanks = doc.data().linkedBanks || [];
+            // Keep all banks EXCEPT the one being revoked
+            const updatedBanks = linkedBanks.filter(b => b.institutionId !== instId);
+            await userRef.update({ linkedBanks: updatedBanks });
+        }
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.listen(process.env.PORT, () => {
     console.log(`Backend running on port ${process.env.PORT}`);
     console.log(`Ensure ngrok is forwarding to this port: ngrok http ${process.env.PORT}`);

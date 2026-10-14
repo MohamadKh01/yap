@@ -300,8 +300,9 @@ function InstitutionsScreen({ navigation, user }) {
       if (savedConsents[institutionId]) {
         navigation.navigate('Accounts', {
           consentToken: savedConsents[institutionId].consentToken,
-          consentId: savedConsents[institutionId].consentId, // <-- Pass the ID to AccountsScreen
-          instId: institutionId
+          consentId: savedConsents[institutionId].consentId,
+          instId: institutionId,
+          userId: user.uid
         });
         return;
       }
@@ -411,7 +412,7 @@ function InstitutionsScreen({ navigation, user }) {
 
 // --- Screen 2: Accounts & Consent Data ---
 function AccountsScreen({ route, navigation }) {
-  const { consentToken, consentId, instId } = route.params;
+  const { consentToken, consentId, instId, userId } = route.params;
   const [accounts, setAccounts] = useState([]);
   const [consentData, setConsentData] = useState(null);
   const [loadingAccounts, setLoadingAccounts] = useState(true);
@@ -456,13 +457,8 @@ function AccountsScreen({ route, navigation }) {
 
   const handleRevoke = async () => {
     try {
-      if (instId) {
-        const stored = await AsyncStorage.getItem('userConsents');
-        if (stored) {
-          const consents = JSON.parse(stored);
-          delete consents[instId];
-          await AsyncStorage.setItem('userConsents', JSON.stringify(consents));
-        }
+      if (instId && userId) {
+        await axios.delete(`${BACKEND_URL}/user/tokens/${userId}/${instId}`);
       }
       navigation.replace('Home');
     } catch (error) {
