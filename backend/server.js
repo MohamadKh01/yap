@@ -109,7 +109,7 @@ app.get('/callback', async (req, res) => {
 
     // Safely append a simple success status to the Expo URL, hiding the token
     const separator = currentClientUrl.includes('?') ? '&' : '?';
-    const deepLink = `${currentClientUrl}${separator}status=${error ? 'failed' : 'success'}`;
+    const deepLink = `${currentClientUrl}${separator}status=${error ? 'failed' : 'success'}&instId=${institution}`;
 
     res.send(`
     <!DOCTYPE html>
@@ -193,7 +193,7 @@ app.delete('/user/tokens/:userId/:instId', async (req, res) => {
         const { userId, instId } = req.params;
         const userRef = db.collection('users').doc(userId);
         const doc = await userRef.get();
-        
+
         if (doc.exists) {
             const linkedBanks = doc.data().linkedBanks || [];
             // Keep all banks EXCEPT the one being revoked

@@ -606,36 +606,41 @@ function TransactionsScreen({ route }) {
 }
 
 // --- Callback Screen ---
-function CallbackScreen({ route, navigation }) {
+function CallbackScreen({ route, navigation, user }) {
   useEffect(() => {
     WebBrowser.dismissBrowser();
 
     const processCallback = async () => {
-      const params = route.params || {};
-      const token = params.consent || params['consent-token'];
-      const consentId = params.consentid || params['consent-id'];
-      const instId = params.instId;
+      const { status, instId } = route.params || {};
 
-      if (token && instId) {
+      if (status === 'success' && instId && user) {
         try {
-          const stored = await AsyncStorage.getItem('userConsents');
-          const consents = stored ? JSON.parse(stored) : {};
+          // Securely fetch the newly saved token from the database
+          const res = await axios.get(`${BACKEND_URL}/user/tokens/${user.uid}`);
+          const linkedBanks = res.data.linkedBanks || [];
+          const matchedBank = linkedBanks.find(b => b.institutionId === instId);
 
-          consents[instId] = { consentToken: token, consentId: consentId };
-          await AsyncStorage.setItem('userConsents', JSON.stringify(consents));
-
-          navigation.replace('Accounts', { consentToken: token, consentId: consentId, instId: instId });
+          if (matchedBank) {
+            // Navigate directly to Accounts with the secured data
+            navigation.replace('Accounts', {
+              consentToken: matchedBank.consentToken,
+              consentId: matchedBank.consentId,
+              instId: instId,
+              userId: user.uid
+            });
+            return;
+          }
         } catch (error) {
-          console.error("Error saving consent", error);
-          navigation.replace('Home');
+          console.error("Error fetching new consent", error);
         }
-      } else {
-        navigation.replace('Home');
       }
+
+      // Fallback if anything fails
+      navigation.replace('Home');
     };
 
     processCallback();
-  }, [route.params, navigation]);
+  }, [route.params, navigation, user]);
 
   return (
     <View style={styles.center}>
@@ -694,7 +699,9 @@ export default function App() {
               >
                 {(props) => <InstitutionsScreen user={user} {...props} />}
               </Stack.Screen>
-              <Stack.Screen name="Callback" component={CallbackScreen} options={{ headerShown: false }} />
+              <Stack.Screen name="Callback" options={{ headerShown: false }}>
+                {(props) => <CallbackScreen user={user} {...props} />}
+              </Stack.Screen>
               <Stack.Screen name="Accounts" component={AccountsScreen} options={{ title: 'My Accounts' }} />
               <Stack.Screen name="Transactions" component={TransactionsScreen} options={{ title: 'Transactions' }} />
             </>
